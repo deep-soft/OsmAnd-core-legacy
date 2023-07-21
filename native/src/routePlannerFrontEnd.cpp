@@ -250,8 +250,31 @@ void RoutePlannerFrontEnd::searchGpxRoute(SHARED_PTR<GpxRouteApproximation> &gct
 				routeFound = initRoutingPoint(next, gctx, gctx->ctx->config->minPointApproximation);
 				if (routeFound) {
 					routeFound = findGpxRouteSegment(gctx, gpxPoints, start, next, prev != nullptr);
+					if (false)
+					{
+						for (int segmentIdx = 0; segmentIdx < start->routeToTarget.size(); segmentIdx++)
+						{
+							const auto segment = start->routeToTarget[segmentIdx];
+							const auto startIdx = segment->getStartPointIndex();
+							const auto endIdx = segment->getEndPointIndex();
+							const int step = startIdx < endIdx ? +1 : -1;
+							for (int i = startIdx; step > 0 ? i <= endIdx : i >= endIdx; i += step)
+							{
+								const auto point = segment->getPoint(i);
+								if (i == startIdx)
+								{
+									OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "type, lat, lon, name");
+									OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f, problematic_route", point.lat, point.lon);
+								}
+								else
+								{
+									OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f", point.lat, point.lon);
+								}
+							}
+						}
+					}
 					if (routeFound) {
-						routeFound = isRouteCloseToGpxPoints(gctx, gpxPoints, start, next);
+						routeFound = isRouteCloseToGpxPoints(gctx, gpxPoints, start, next, prev);
 						if (!routeFound) {
 							start->routeToTarget.clear();
 						}
@@ -263,6 +286,8 @@ void RoutePlannerFrontEnd::searchGpxRoute(SHARED_PTR<GpxRouteApproximation> &gct
 						// route is found - cut the end of the route and move to next iteration
 						// start.stepBackRoute = new ArrayList<RouteSegmentResult>();
 						// boolean stepBack = true;
+						if (next->ind == 3795)
+							OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "Stop before step back");
 						stepBack = stepBackAndFindPrevPointInRoute(gctx, gpxPoints, start, next);
 						if (!stepBack) {
 							// not supported case (workaround increase maxStepApproximation)
@@ -297,8 +322,13 @@ void RoutePlannerFrontEnd::searchGpxRoute(SHARED_PTR<GpxRouteApproximation> &gct
 				makeSegmentPointPrecise(prev->routeToTarget[prev->routeToTarget.size() - 1], start->lat, start->lon,
 										false);
 				if (next) {
-					OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Info, "NOT found route from: %s at %d",
-									  start->pnt->getRoad()->getName().c_str(), start->pnt->getSegmentStart());
+					OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "type, lat, lon, name");
+					const auto& preciseStart = start->pnt->getPreciseLatLon();
+					const auto& preciseEnd = next->pnt->getPreciseLatLon();
+					OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f, missing_route(%d..%d)", preciseStart.lat, preciseStart.lon, start->ind, next->ind);
+					OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f", preciseEnd.lat, preciseEnd.lon);
+					// OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Info, "NOT found route from: (%f, %f) to (%f, %f)",
+					// 				  start->pnt->getRoad()->getName().c_str(), start->pnt->getSegmentStart());
 				}
 			}
 			prev = nullptr;
@@ -313,6 +343,36 @@ void RoutePlannerFrontEnd::searchGpxRoute(SHARED_PTR<GpxRouteApproximation> &gct
 	if (gctx->ctx->progress) {
 		gctx->ctx->progress->timeToCalculate.Pause();
 	}
+
+	// for (int originalPointIdx = 0; originalPointIdx < gpxPoints.size(); originalPointIdx++)
+	// {
+	// 	const auto& originalPoint = gpxPoints[originalPointIdx];
+	// 	const auto& route = originalPoint->routeToTarget;
+	// 	if (route.empty())
+	// 		continue;
+
+	// 	for (int segmentIdx = 0; segmentIdx < route.size(); segmentIdx++)
+	// 	{
+	// 		const auto segment = route[segmentIdx];
+	// 		const auto startIdx = segment->getStartPointIndex();
+	// 		const auto endIdx = segment->getEndPointIndex();
+	// 		const int step = startIdx < endIdx ? +1 : -1;
+	// 		for (int i = startIdx; step > 0 ? i <= endIdx : i >= endIdx; i += step)
+	// 		{
+	// 			const auto point = segment->getPoint(i);
+	// 			if (i == startIdx)
+	// 			{
+	// 				OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "type, lat, lon, name");
+	// 				OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f, %d:%d:%d", point.lat, point.lon, originalPointIdx, segmentIdx, i);
+	// 			}
+	// 			else
+	// 			{
+	// 				OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "T, %f, %f", point.lat, point.lon);
+	// 			}
+	// 		}
+	// 	}
+	// }
+
 	calculateGpxRoute(gctx, gpxPoints);
 	if (!gctx->result.empty() && !gctx->ctx->progress->isCancelled()) {
 //		RouteResultPreparation.printResults(gctx->ctx, gpxPoints[0]->lat, gpxPoints[0]->lon,
@@ -384,15 +444,18 @@ void RoutePlannerFrontEnd::makeSegmentPointPrecise(SHARED_PTR<RouteSegmentResult
 }
 
 bool RoutePlannerFrontEnd::isRouteCloseToGpxPoints(SHARED_PTR<GpxRouteApproximation>& gctx, vector<SHARED_PTR<GpxPoint>>& gpxPoints,
-	                         SHARED_PTR<GpxPoint>& start, SHARED_PTR<GpxPoint>& next) {
+	                         SHARED_PTR<GpxPoint>& start, SHARED_PTR<GpxPoint>& next, SHARED_PTR<GpxPoint>& prev) {
 	bool routeIsClose = true;
+	int gpxPointStartIdx = prev && !prev->stepBackRoute.empty()
+		? prev->ind + 1
+		: start->ind;
 	for (SHARED_PTR<RouteSegmentResult> r : start->routeToTarget) {
 		int st = r->getStartPointIndex();
 		int end = r->getEndPointIndex();
 		while (st != end) {
 			LatLon point = r->getPoint(st);
 			bool pointIsClosed = false;
-			for (int k = start->ind; !pointIsClosed && k < next->ind; k++) {
+			for (int k = gpxPointStartIdx; !pointIsClosed && k < next->ind; k++) {
 				pointIsClosed = pointCloseEnough(gctx, point, gpxPoints[k], gpxPoints[k + 1]);
 			}
 			if (!pointIsClosed) {
@@ -692,6 +755,9 @@ bool RoutePlannerFrontEnd::pointCloseEnough(SHARED_PTR<GpxRouteApproximation>& g
 	std::pair<double, double> projection =
 		getProjection(point.lat, point.lon, gpxPointLL.lat, gpxPointLL.lon, gpxPointNextLL.lat, gpxPointNextLL.lon);
 	return getDistance(projection.first, projection.second, point.lat, point.lon) <= gctx->ctx->config->minPointApproximation;
+	// std::pair<double, double> projection =
+	// 	getProjection(point.lat, point.lon, gpxPoint->lat, gpxPoint->lon, gpxPointNext->lat, gpxPointNext->lon);
+	// return getDistance(projection.first, projection.second, point.lat, point.lon) <= gctx->ctx->config->minPointApproximation;
 }
 
 bool RoutePlannerFrontEnd::pointCloseEnough(SHARED_PTR<GpxRouteApproximation>& gctx, SHARED_PTR<GpxPoint>& ipoint,
