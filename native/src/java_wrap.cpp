@@ -2830,7 +2830,7 @@ inline void addObjectDataToMapboxVectorTile(
 
 inline int scaleToTile(int coord, int tileStart, int shift) {
 	if (shift <= 0)
-		return coord - tileStart << -shift;
+		return (coord - tileStart) << (-shift);
 	int delta = coord - tileStart;
-	return (delta >> shift) + (delta >> shift - 1 & 1);
+	return (delta >> shift) + (delta >> (shift - 1) & 1);
 }
